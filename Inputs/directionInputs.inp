@@ -4,8 +4,9 @@
 -0.00641D0	! Amin 	(Origin function parameter for speed generation)***
 12.92025D0	! h 	(Origin function parameter for speed generation)
 317016.713D0	! s 	(Origin function parameter for speed generation)
-317.0D-03  	! valve to probe distance used in measurement which generated above Origin parameters / m
+297.0D-03  	! valve to probe distance used in measurement which generated above Origin parameters / m
 .false.      	! Perform Scattering? True for scattered parameters, false for ingoing beam only
+.true.		! Output ingoing profile
 0.026D0		! Molar mass of Molecule / kgmol-1
 0.0D0		! Fractional Energy loss to internal surface motions (Soft Sphere model) 0 = no energy loss, 1 = all energy lost
 100D0		! Surface Mass of liquid / gmol-1 (Soft Sphere model)
@@ -13,9 +14,15 @@
 298.0D0         ! Surface Temperature / K
 100000		! Number of (ingoing) particles generated
 3000.0D0      	! Max speed used in calculation of Maxwell-Boltzmann ditribution. Set higher for possiblity of higher speed being sampled /ms-1
-0.5D0		! Scatter Fraction in TD or IS (0 = TD only, 1 = IS only) Note for any scattering the flag above must be set to .true.
+1.0D0		! Scatter Fraction in TD or IS (0 = TD only, 1 = IS only) Note for any scattering the flag above must be set to .true.
 1		! Power of cosine weighted TD angular distribution (cos^n)
 4		! Power of cosine weighted IS angular distribution (cos^n)
+.true.		! Output x-y beam profiles T/F
+.false.		! Blurring on
+0D0		! Mean of Gaussian for ingoing transverse temp blurring
+1D-20		! Std Dev of Gaussian for ingoing transverse temp blurring
+1D0		! Fraction of Gaussian in Gaussian/Lorentzian mix for ingoing transverse temp blurring (1 = all Gaussian, 0 = all Lorentzian)
+0D0		! Gamma value of Lorentzian for ingoing transverse temp blurring		
 
 
 *** Note if Amax is less than 1 or Amin is greater than 0 some speeds will be generated as NAN
