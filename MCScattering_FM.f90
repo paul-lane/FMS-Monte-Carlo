@@ -100,8 +100,7 @@ program MCScatteringFM
     Double Precision:: rand1							! Random number for IS/TD ratios
     Logical:: correctDirection							! correct direction (IS)
 
-
-! Random
+! Random number generation
    Double Precision :: rand
    Integer :: i_seed
    Integer, Dimension(:), Allocatable :: a_seed
@@ -292,6 +291,11 @@ program MCScatteringFM
 
 	mostLikelyProbability = MB_most_likely(temp, mass)		! Calculate probability of most probable speed at a given temp for TD subroutines
         vectorsPerParticle = 2						! If doing scattering sets the number of vectors per particle to 2 - used for loops later
+	if(outputIngoing .eqv. .false.) then
+		Write(*,*) "Simulating Scattered Beam Only"
+	else
+		Write(*,*) "Simulating Ingoing and Scattered Beams"
+	end if 
     else
         vectorsPerParticle = 1						! Otherwise number of vectors per particle is set to 1 (ingoing simulation only)
 	Write(*,*) "Simulating Ingoing Beam Only"
