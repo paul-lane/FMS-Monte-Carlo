@@ -10,7 +10,6 @@ include "Constants/mathConstants.f90"
 include "Maths/speeds.f90"
 include "Maths/directions.f90"
 include "Maths/fmDetection.f90"
-include "Maths/debug.f90"
 
 program MCScatteringFM
 
@@ -19,7 +18,6 @@ program MCScatteringFM
     use directions
     use mathConstants
     use fmDetection
-    use debug	
  
     implicit none
 
@@ -31,7 +29,8 @@ program MCScatteringFM
     Integer :: ncyc, cosinePowerTD, cosinePowerIS
     Double Precision :: incidenceAngle, x0, aMax, aMin, h, s, dist, massMol, energyTrans, surfaceMass, exitAngle, temp
     Double Precision :: maxSpeed, scatterFraction, mass
-    Logical :: scattering
+    Double Precision :: gMean, gStdDev, lgFraction, lGamma
+    Logical :: scattering, outputIngoing, xyOutput, blurOn
 
 ! Variables from chamber dimensions input (defined in input file)
     Double Precision :: skimPos, valvePos, colPos, skimRad, valveRad, colRad, probeCentre 
@@ -69,7 +68,7 @@ program MCScatteringFM
 ! Loop counters and array sizes
     Integer:: i, j, k								! Loop iterators
     Integer:: NumberOfTimePoints, NumberOfSpeedPoints				! No of time points in App Profile, No of speed points in transverse speed
-    Integer:: vectorsPerParticle						! No of vectors run for a particular particle (1 if ingoing only, 2 if scattering)	
+    Integer:: vectorsPerParticle, startParticle						! No of vectors run for a particular particle (1 if ingoing only, 2 if scattering)	
 
 ! Variables for counter print out
     Integer:: acceptedCounter							! Count of accepted particle trajectories  
@@ -82,7 +81,7 @@ program MCScatteringFM
 
 ! Variables for filename production
     Integer:: filetime								! Variable which provides the number (time) in the Speed filename
-    Character*15 :: speedFilename						! Speed filename
+    Character*50 :: speedFilename						! Speed filename
 
 ! Variables used for profiling the beam
     Double Precision, dimension(2) :: profile					! Beam profile at a given z distance
@@ -101,6 +100,13 @@ program MCScatteringFM
     Double Precision:: rand1							! Random number for IS/TD ratios
     Logical:: correctDirection							! correct direction (IS)
 
+
+! Random
+   Double Precision :: rand
+   Integer :: i_seed
+   Integer, Dimension(:), Allocatable :: a_seed
+   Integer, Dimension(1:8) :: dt_seed
+
 ! ****************************************
 ! INITIALIZE COUNTERS
 ! ****************************************
@@ -109,10 +115,19 @@ program MCScatteringFM
     acceptedIngoing = 0
     acceptedScattered = 0
     missWheel = 0
-    arrayCount = 0
+
+!*****************************************
+! GENERATE RANDOM SEED
+!*****************************************
 
     ! Without calling random seed, random number sequences can often be repeated
-    call random_seed
+
+    call random_seed(size=i_seed)
+    allocate(a_seed(1:i_seed))
+    call date_and_time(values=dt_seed)
+    a_seed(i_seed)=dt_seed(8); a_seed=dt_seed(8)*dt_seed(7)*dt_seed(6)
+    call random_seed(put=a_seed)
+    deallocate(a_seed)
 
     call cpu_time(startTime)
 
@@ -134,9 +149,10 @@ program MCScatteringFM
      Read(11,*) h							! }
      Read(11,*) s							! }
      Read(11,*) dist							! Valve-Probe Distance at which the above Origin data was recorded 
-     Read(11,*) scattering						! Perform scattering T/F
+     Read(11,*) scattering						! Perform scattering? T/F
+     Read(11,*) outputIngoing						! Output ingoing profile? T/F
      Read(11,*) massMol							! Molar mass of incident particle
-     Read(11,*) energyTrans						! Energy transfered to the surface
+     Read(11,*) energyTrans						! Fraction of energy transfered to the surface
      Read(11,*) surfaceMass						! Effective surface mass
      Read(11,*) exitAngle						! Exit angle
      Read(11,*) temp							! Surface temperature
@@ -145,12 +161,14 @@ program MCScatteringFM
      Read(11,*) scatterFraction						! Fraction of scattering which is IS and TD
      Read(11,*) cosinePowerTD						! TD power of cosine of scattering angle (cos^n)
      Read(11,*) cosinePowerIS						! IS power of cosine of scattering angle (cos^n)
+     Read(11,*) xyOutput						! Output x-y co-ordinates at various points
+     Read(11,*) blurOn							! Turn on Gaussian Blurring
+     Read(11,*) gMean							! Mean of Gaussian for ingoing beam transverse temp blurring	
+     Read(11,*) gStdDev							! Std Dev of Gaussian for ingoing beam transverse temp blurring
+     Read(11,*) lgFraction						! Fractional weighting of Gaussian/Loretzian in transverse temp blurring
+     Read(11,*) lGamma							! Gamma for Lorentzian in transverse temp blurring
      Close(11)
      
-! Adam's code had seperate inputs for molar mass and molecule mass, this would be confusing as you would need to change both
-! I have just read in the molar mass and added Avagadro's no to the constants to calculate the molecule mass from it
-! Check with Adam if there is a good reason why he didn't do this...
-
      mass = massMol/avagadro
 
 !******************************************
@@ -208,6 +226,7 @@ program MCScatteringFM
      allocate(yOffset(npass), zOffset(npass), th1(npass), th2(npass))	! Allocate arrays of the appropriate size
 
      allocate(arrayCount(2,npass))
+     arrayCount=0
 
      Do k = 1, npass					
 	Read(15,*) yOffset(k), zOffset(k), th1(k), th2(k)		! Read in internal dimensions of Herriott Cell
@@ -248,21 +267,67 @@ program MCScatteringFM
     
 
 !************************************************
-! SCATTERING PARAMETERS
+! SIMULATION DETAILS
 ! Scattered trajectories are calculated if the input flag is set to true
-! if not, only the ingoing beam will be calculated.
-! Here most likely probability is calcuated (and used later) 
+! Also have the option to not output ingoing beam if required
+!  
 !************************************************
+
+    if ((outputIngoing .eqv. .false.) .and. (scattering .eqv. .false.)) then
+        Write(*,*) "You have chosen to output neither ingoing or scattering information"
+        Write(*,*) "DON'T WASTE MY TIME"
+ 	STOP
+    end if
+
+
+    if (outputIngoing .eqv. .true.) then                                ! Have the ability to output only the scattered profile
+        startParticle = 1
+    else
+        startParticle = 2
+    end if
+
+
 
     if (scattering .eqv. .TRUE.) then
 
 	mostLikelyProbability = MB_most_likely(temp, mass)		! Calculate probability of most probable speed at a given temp for TD subroutines
         vectorsPerParticle = 2						! If doing scattering sets the number of vectors per particle to 2 - used for loops later
-	Write(*,*) "Simulating Ingoing Beam and Scattered Trajectories"
     else
         vectorsPerParticle = 1						! Otherwise number of vectors per particle is set to 1 (ingoing simulation only)
 	Write(*,*) "Simulating Ingoing Beam Only"
     end if
+
+!********************************************************************************
+! OPEN FILES TO WRITE STEP-BY-STEP DATA TO
+!********************************************************************************
+
+    Open(unit=22,file='Outputs/MissedWheel.txt')
+    Write(22,*) "List of x-y co-ordinates of trajectories that miss the wheel"		! Most of the time everything should hit, shows that file has been written
+
+    Open(unit=23,file='Outputs/IngoingCollimatorProfile.txt')
+    Write(23,*) "List of x-y co-ordinates of trajectories exiting the collimator"
+
+    Open(unit=24,file='Outputs/IngoingCellProfile.txt')
+    Write(24,*) "List of x-y co-ordinates of ingoing trajectories at the centre of the probe plane (not all will be detected)"
+
+    Open(unit=25,file='Outputs/ScatteredCellProfile.txt')
+    Write(25,*) "List of x-y co-ordinates of scattered trajectories at the centre of the probe plane (not all will be detected)"
+
+    Open(unit=26,file='Outputs/WheelProfile.txt') 
+    Write(26,*) "List of x-y co-ordinates of trajectories at the wheel plane (not all will hit the wheel)"
+
+    Open(unit=27,file='Outputs/IngoingProbed.txt')
+    Write(27,*) "List of x-y co-ordinates of ingoing probed trajectories at the centre of the Herriott Cell)"
+
+    Open(unit=28,file='Outputs/ScatteredProbed.txt')
+    Write(28,*) "List of x-y co-ordinates of ingoing probed trajectories at the centre of the Herriott Cell)"
+
+    if(xyOutput .eqv. .false.) then
+	Do i = 22, 28
+ 	 	Write(i,*) "This file is blank as you have chosen not to output beam profiles"
+	End do 
+    endif
+
 
 !********************************************************************************
 ! CREATES TRAJECTORIES 
@@ -280,9 +345,12 @@ program MCScatteringFM
 !**************************************************
 ! NEW AND UNTESTED... There are some additional parameters needed as the subroutine is the sum of a Gaussian and Lorentian
 
-!	call transverse_temp(0D0, 40D0, 40D0, 0.5D0, colPos, (valvePos-colPos), particleTime(1), &
-!		particleSpeed(1), particleStartPos(1,:), particleVector(1,:))
+	if(blurOn .eqv. .true.) then
 
+	call transverse_temp(gMean, gStdDev, lGamma, lgFraction, colPos, (valvePos-colPos), particleTime(1), &
+		particleSpeed(1), particleStartPos(1,:), particleVector(1,:))
+
+	endif
 
 
 !**************************************************
@@ -308,7 +376,7 @@ program MCScatteringFM
 		Write(*,*) '*** Ingoing Start Positions Overwritten ***'
 		particleStartPos(1,1) = owPosxIn
 		particleStartPos(1,2) = owPosyIn
-	endif
+	end if
 
 
 !****************************************
@@ -316,44 +384,31 @@ program MCScatteringFM
 ! Need to double check this subroutine as it has been a while
 !****************************************
 
-        ! Write ingoing particle vector to fort.68
-        ! Write ingoing speed to fort.69
-        Write(68,*) particleVector(1,1), particleVector(1,2), particleVector(1,3)
-        Write(69,*) particleStartPos(1,1), particleStartPos(1,2), particleStartPos(1,3)
+	if(xyOutput .eqv. .true.) then
 
-	! Beam Profile at Valve (Note that z position is calculated based on distance travelled as ingoing and
-	!  scattered trajectories start at different points this has to be taken into account
-	z = abs(particleStartPos(1,3) - valvePos)	
-	call getProfile(particleVector(1,:), particleStartPos(1,:), z, profile)
-	Write(70,*) profile(1), profile(2)
-	z = abs(particleStartPos(2,3) - valvePos)  
-        call getProfile(particleVector(2,:), particleStartPos(2,:), z, profile)
-        Write(80,*) profile(1), profile(2)
+! If you ever want to write out a list of start positions and trajectories this is the place to do it
+! I did it to debug but there is no need to write these files every time
 
-	! Beam Profile at skimmer
-	z = abs(particleStartPos(1,3) - skimPos)  
-	call getProfile(particleVector(1,:), particleStartPos(1,:), z, profile)
-	Write(71,*) profile(1), profile(2)
-        z = abs(particleStartPos(2,3) - skimPos)
-        call getProfile(particleVector(2,:), particleStartPos(2,:), z, profile)
-        Write(81,*) profile(1), profile(2)
+! Write Ingoing Beam Profile at collimator position
+		z = abs(particleStartPos(1,3) - colPos)  
+		call getProfile(particleVector(1,:), particleStartPos(1,:), z, profile)
+		Write(23,*) profile(1), profile(2)
 
-	! Beam Profile at centre of probe beam
-        z = abs(particleStartPos(1,3) - probeCentre)
-	call getProfile(particleVector(1,:), particleStartPos(1,:), z, profile)
-	Write(72,*) profile(1), profile(2)
-        z = abs(particleStartPos(2,3) - probeCentre)
-        call getProfile(particleVector(2,:), particleStartPos(2,:), z, profile)
-        Write(82,*) profile(1), profile(2)
+! Write Ingoing Beam Profile at centre of probe beam 
+        	z = abs(particleStartPos(1,3) - probeCentre)
+		call getProfile(particleVector(1,:), particleStartPos(1,:), z, profile)
+		Write(24,*) profile(1), profile(2)
 
-	! Beam profile at wheel
-        z = abs(particleStartPos(1,3) - 0.0)
-	call getProfile(particleVector(1,:), particleStartPos(1,:), z, profile)
-  	Write(73,*) profile(1), profile(2)
-	z = abs(particleStartPos(2,3) - 0.0)
-	call getProfile(particleVector(2,:), particleStartPos(2,:), z, profile)
-	Write(83,*) profile(1), profile(2)
+! Write Scattered Beam Profile at centre of probe beam
+        	z = abs(particleStartPos(2,3) - probeCentre)
+        	call getProfile(particleVector(2,:), particleStartPos(2,:), z, profile)
+        	Write(25,*) profile(1), profile(2)
 
+! Write Beam profile at wheel (note as scattered trajectories start from where the ingoing beam hits the wheel this is the same for both)
+        	z = abs(particleStartPos(1,3) - 0.0)
+		call getProfile(particleVector(1,:), particleStartPos(1,:), z, profile)
+  		Write(26,*) profile(1), profile(2)
+	end if
 
 ! *****************************************
 ! ANGLE OF INCIDENCE
@@ -420,13 +475,7 @@ program MCScatteringFM
 			call soft_sphere_speed(massMol, energyTrans, surfaceMass, particleSpeed(1), deflectionAngle, particleSpeed(2))
 		end if
 
-
-!*************************** This is the bit that has been replaced by the above************************************************
-!            call MB_speed(maxSpeed, temp, mass, mostLikelyProbability, particleSpeed(2))         	! Generates Maxwell Boltzmann Speed
-!            call cosine_distribution(cosinePowerTD, particleVector(2,:))                                ! Generates TD vector
-!*******************************************************************************************************************************
-! FROM HERE NOTHING HAS CHANGED
-
+		
 !*********************************************	
 ! OVERWRITE SCATTERED PARAMETERS IF DESIRED
 !*********************************************
@@ -459,7 +508,7 @@ program MCScatteringFM
 
 ! Loops through ingoing trajectories (j=1) then scattered trajectories (j=2)
 
-        do j = 1, vectorsPerParticle								! Do 1 to number of vectors per particle 
+        do j = startParticle, vectorsPerParticle						! Do from startParticle to number of vectors per particle 
 
 
 ! **************************************************
@@ -508,9 +557,13 @@ program MCScatteringFM
  	    	
 		if(hit .eqv. .false.) then					! If we have a trajectory missing the wheel we only add to the counter on the
 	     		intersect = .false.					! first laser pass (the trajectory is independent of the probe beam)
+
 			if(k .eq. 1) then					! If we counted every rejection our stats would be a factor of npass to large
 				missWheel = missWheel + 1			! Output positions of trajectories which miss the wheel
-				Write(22,*) particleStartPos(2,1), particleStartPos(2,2)
+
+				if(xyOutput .eqv. .true.) then
+					Write(22,*) particleStartPos(2,1), particleStartPos(2,2)
+				end if
 			end if						
 		endif								
 
@@ -528,15 +581,28 @@ program MCScatteringFM
             if(Intersect) then
 
 
-	!**************** Debug ********************************	
-        ! Beam Profile at centre of probe beam (looking at only probed trajectories only)
-        z = abs(particleStartPos(1,3) - probeCentre)
-        call getProfile(particleVector(1,:), particleStartPos(1,:), z, profile)
-        Write(92,*) profile(1), profile(2)
-        z = abs(particleStartPos(2,3) - probeCentre)
-        call getProfile(particleVector(2,:), particleStartPos(2,:), z, profile)
-        Write(97,*) profile(1), profile(2)
-	! ******************************************************
+!*************************************************
+! WRITE PROBED BEAM PROFILES
+!*************************************************
+! These provide a 2-D projection of the probe volume onto the centre of the Herriott cell 
+
+	if(xyOutput .eqv. .true.) then
+
+! Write ingoing beam Profile at centre of Herriot Cell (only probed trajectories only)
+        	z = abs(particleStartPos(1,3) - probeCentre)
+        	call getProfile(particleVector(1,:), particleStartPos(1,:), z, profile)
+        	Write(27,*) profile(1), profile(2)
+
+! Write scattered beam profile at centre of Herriot Cell (only probed trajectories)
+       		z = abs(particleStartPos(2,3) - probeCentre)
+        	call getProfile(particleVector(2,:), particleStartPos(2,:), z, profile)
+        	Write(28,*) profile(1), profile(2)
+
+	endif
+
+!*************************************************
+! GET INTERSECTION POSITIONS
+!*************************************************
 
 
 ! Get the intersection positions 
@@ -600,16 +666,29 @@ program MCScatteringFM
     end do 	! ncyc 
 
 !************************************************
+! CLOSE OUPTUT FILES
+!************************************************
+
+      Close(22)
+      Close(23)
+      Close(24)
+      Close(25)
+      Close(26)
+      Close(27)
+      Close(28)
+
+
+!************************************************
 ! WRITING DATA TO FILE
 !************************************************
 	
 ! Write out Appearance Profiles and Transverse Speed Distribution
-	Open(unit=20,file='AppProfile.txt')
-	Do i = 1, numberOfTImePoints
+	Open(unit=20,file='Outputs/AppProfile.txt')
+	Do i = 1, numberOfTimePoints
          filetime = (((i-1)*tstep)+probeStart)/1e-6             ! Calculate time point for AppProfile and Speed filenames
 	 Write(20,*) filetime, AppProfile(i)			! Write Appearance Profile
 
-	 Write(speedFilename,'("Speed_",I3.3,".txt")')filetime	! Create filenames for each timestep
+	 Write(speedFilename,'("Outputs/Speed/Speed_",I3.3,".txt")')filetime	! Create filenames for each timestep
          Open(unit=100+i,file=speedFilename)				
 	 Do j = 1, numberOfSpeedPoints				! For each range of speed points write transverse speed
 	  Write(100+i,*) (((j-1)*speedStep)+speedStart), TransSpeed(i,j)
@@ -620,7 +699,7 @@ program MCScatteringFM
 	Close(20)
 
 ! Write Array Count stats
-	Open(unit=21, file='Statistics.txt')
+	Open(unit=21, file='Outputs/Statistics.txt')
 	Write(21,*) ncyc, "Total ingoing trajectories Created "
 	Write(21,*) missWheel, "Trajectories missing the wheel "
 	Write(21,*) 1.0*missWheel/ncyc, "Fraction of trajectories missing the wheel "
@@ -653,11 +732,18 @@ program MCScatteringFM
 
 ! Print info to screen
 
+    print *,
     print *, "Finished in", runTime, "seconds"
-    print *, totalTraj, "Total trajectories"
-    print *, acceptedCounter, "accepted trajectories"
-    print "(a, F4.2, a)","  ", acceptanceRatio, " acceptance ratio"
-    print *, acceptedIngoing, " ingoing trajectories"
-    print *, acceptedScattered, "scattered trajectories"
+    print *,
+    print *, ncyc, "Total ingoing trajectories Created "
+    print *, missWheel, "Trajectories missing the wheel "
+    print '(a, F4.2, a)', "        ", 1.0*missWheel/ncyc, " Fraction of trajectories missing the wheel "
+    print *, ncyc*npass, "Possible ingoing probed trajectories "
+    print *, acceptedIngoing, "Ingoing trajectories probed "
+    print '(a, F4.2, a)', "        ", 1.0*acceptedIngoing/(ncyc*npass), " Ingoing acceptance ratio "
+    print *, (ncyc - missWheel)*npass, "Possible scattered trajectories "
+    print *, acceptedScattered, "Scattered trajectories probed "
+    print '(a, F4.2, a)', "        ", 1.0*acceptedScattered/((ncyc-missWheel)*npass), " Scattered trajectory acceptance ratio "
+    print *,
 
 end program MCScatteringFM
