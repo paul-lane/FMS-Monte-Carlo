@@ -18,9 +18,10 @@
 	Double Precision :: lowlimit, uplimit, stepSize, modFreq, modStep, speedStep, min, maxAbs, maxFM, minX
 	Double Precision, allocatable :: freq(:), amplitude(:)
 	Double Precision, Allocatable :: transSpeed(:), FMabs(:), absLine(:), sp(:), spX(:)
-	Character(20), Parameter:: inpath = 'Outputs/Processing2/'
+	Character(8), Parameter:: inpath = 'Outputs/'
 	Character(8), Parameter:: outpath = 'Outputs/'
-	Character(15):: infile, absFile, FMFile
+	Character(15):: absFile, FMFile
+	Character(18):: infile
 	Logical :: norm
 
 
@@ -49,7 +50,7 @@
 
 	Do i = 1, nfiles							! For each input file
 
-		write(infile,'("Output_",I3.3,".txt")')i			! Generate input filename
+		write(infile,'("SpeedDistr_",I3.3,".txt")')i			! Generate input filename
 		Open(unit=1000+i,file= inpath//infile)				! Open file
 		Read(1000+i,*) speedStep, numberOfSpeedPoints			! Read speed step and number of speed points
 

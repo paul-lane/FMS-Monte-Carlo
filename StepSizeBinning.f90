@@ -22,8 +22,9 @@ include "Constants/mathConstants.f90"
 	Integer :: i, k, roundedDoppler, nspeeds, binsize, nbins, remove, ninputs
 	Double Precision :: fv 						
 	Character(15) :: filename
+	Character(18) :: fileout
 	Character(20), Parameter :: filepath1 = "Outputs/Processing1/" 	
-	Character(20), Parameter :: filepath2 = "Outputs/Processing2/"
+	Character(8), Parameter :: filepath2 = "Outputs/"
 
 !**********************************
 ! READ INPUT PARAMETERS
@@ -93,14 +94,15 @@ include "Constants/mathConstants.f90"
 !**************************************
 ! Do binning and Write output
 !**************************************
-
-		Open(unit=2000+i, file=filepath2//filename)				! Create filename
+			
+		Write(fileout,'("SpeedDistr_",I3.3,".txt")')i
+		Open(unit=2000+i, file=filepath2//fileout)				! Create filename
 		Write(2000+i,*) roundedDoppler, ((nSpeeds-remove)/nbins)		! Write header containing doppler stepsize and number of speed points
 
 	
 		Do k = 1, (nspeeds-remove), nbins					
 			fv = sum(fvv2_2v(k:k+nbins-1))					! Integration of f(v)v^2/2v (as with of bin is 1ms-1 dt = 1ms-1 therefore *1 ignored)
-			Write(2000+i,*) midPointSpeed(k), fv				! Write to file
+			Write(2000+i,*) midPointSpeed(k), fv, amplitude(k)		! Write to file 
 		End do
 		Close(2000+i)
 	End do
