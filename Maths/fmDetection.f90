@@ -222,7 +222,7 @@ Module fmDetection
 ! The only particles that hit the wheel are those which have a radial distance less than or equal to the radius of the wheel AND
 ! are above the top of the bath (particles within the radius of the wheel but below the bath top hit the bath and not the wheel)
 
-	if((radialDist .le. wheelRadius) .and. (particleStartPos(2) .lt. bathTop)) then
+	if((radialDist .le. wheelRadius) .and. (particleStartPos(2) .gt. bathTop)) then
 		hit = .true.
 	else
 		hit = .false.		
@@ -452,7 +452,8 @@ Module fmDetection
 	    End do	
 
 	    Do i = 1, (centre - nPad)
-		n = (centre-nPad)-i+2		
+!		n = (centre-nPad)-i+2		
+		n = (centre-nPad)-i+1
 		array2(i) = array1(n) + sum
 		sum = sum + array1(n)
 	    End do
@@ -464,7 +465,7 @@ Module fmDetection
 		elseif((i .GT. nPad) .AND. (i .LE. centre)) then
 		 integral(i) = array2(i-npad)
 		else
-		 integral(i) = integral(centre-(i-centre))
+		 integral(i) = integral(centre-(i-centre-1)) 		!!ADDED MINUS ONE
 		endif                         
 	    End do	         
 
