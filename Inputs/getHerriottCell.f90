@@ -52,8 +52,11 @@ Do i = 1, nspot-1				! number of passes is 1 less than number of spots
 	th1(i) = (th1(i)/pi)*180.0
 	th2(i) = (th2(i)/pi)*180.0
 
-	ypos(i) = y(i)-my(i)*x(i)
-	zpos(i) = z(i)-mz(i)*x(i)
+!	ypos(i) = y(i)-my(i)*x(i)
+!	zpos(i) = z(i)-mz(i)*x(i)
+
+	ypos(i) = (y(i+1)+y(i))/2.0		! The positions at the centre of the cell are the average of the positions at either end of the cell
+	zpos(i) = (z(i+1)+z(i))/2.0
 
 	Write(11,*) ypos(i), zpos(i), th1(i), th2(i)
 End do
