@@ -556,7 +556,8 @@ program MCScatteringFM
 	    ! to be probed.  
 
 
-	   if(j .eq. 2) then							! for scattered particles only...
+!	   if(j .eq. 2) then							! This used to only be run for scattered particles but is needed to see which
+										! ingoing trajectories miss the wheel...
 	   	call hitWheel(particleStartPos(2,:), wheelCentrex, wheelCentrey, wheelRadius, bathTop, hit)
  	    	
 		if(hit .eqv. .false.) then					! If we have a trajectory missing the wheel we only add to the counter on the
@@ -571,7 +572,7 @@ program MCScatteringFM
 			end if						
 		endif								
 
-	   endif
+!	   endif
 
 !*************************************************
 ! FIND INTERSECTION DETAILS
